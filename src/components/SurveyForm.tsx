@@ -4,8 +4,8 @@ import { User } from 'firebase/auth';
 import { SURVEY_QUESTIONS } from '../data/surveyQuestions';
 import { SurveyResponse } from '../types/survey';
 import { sendResponseToGoogleSheets } from '../services/googleSheetsService';
-import { appendRowToGoogleSheet, mapSurveyResponseToRow, USER_SHEET_HEADERS } from '../services/googleSheetsApi';
-import { getAccessToken } from '../services/googleAuth';
+import { appendRowToGoogleSheet, mapSurveyResponseToRow, USER_SHEET_HEADERS, DEFAULT_SHEET_TAB_TITLE } from '../services/googleSheetsApi';
+import { getAccessToken, googleSignIn } from '../services/googleAuth';
 import {
   AlertCircle,
   ArrowLeft,
@@ -152,20 +152,31 @@ export const SurveyForm: React.FC<Props> = ({
     let directSynced = false;
     if (connectedSpreadsheetId) {
       try {
-        const token = await getAccessToken();
+        let token = await getAccessToken();
+        if (!token) {
+          // Si no hay sesión activa de Google, solicitar inicio de sesión para que el envío no falle
+          try {
+            const authResult = await googleSignIn();
+            token = authResult?.accessToken || null;
+          } catch (authErr) {
+            console.warn('Inicio de sesión Google no completado:', authErr);
+          }
+        }
+
         if (token) {
+          const targetTab = connectedSheetTitle || DEFAULT_SHEET_TAB_TITLE;
           const rowValues = mapSurveyResponseToRow(newResponse, USER_SHEET_HEADERS);
           await appendRowToGoogleSheet(
             connectedSpreadsheetId,
-            connectedSheetTitle || 'Respuestas de la Encuesta',
+            targetTab,
             rowValues,
             token
           );
           directSynced = true;
           newResponse.syncedToGoogleSheets = true;
-          setSheetFeedback('¡Respuesta guardada directamente en tu Hoja de cálculo de Google (sin Google Apps Script)!');
+          setSheetFeedback(`¡Datos actualizados y enviados exitosamente a tu Hoja de cálculo de Google (pestaña "${targetTab}")!`);
         } else {
-          setSheetFeedback('Nota: Tu sesión de Google expiró. Inicia sesión para sincronizar automáticamente a tu hoja.');
+          setSheetFeedback('Nota: Guardado localmente. Inicia sesión con Google para sincronizar automáticamente a tu hoja de cálculo.');
         }
       } catch (err: any) {
         console.error('Error escribiendo en Google Sheets:', err);

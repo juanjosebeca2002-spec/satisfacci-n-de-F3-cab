@@ -26,6 +26,7 @@ interface Props {
   connectedSpreadsheetId?: string;
   connectedSheetTitle?: string;
   onOpenDirectSheets?: () => void;
+  onRefreshFromGoogleSheets?: () => void;
   onClearResponses: () => void;
   onImportCsv: (csvContent: string) => void;
   onUpdateResponses: (responses: SurveyResponse[]) => void;
@@ -37,6 +38,7 @@ export const ResponsesDashboard: React.FC<Props> = ({
   connectedSpreadsheetId,
   connectedSheetTitle,
   onOpenDirectSheets,
+  onRefreshFromGoogleSheets,
   onClearResponses,
   onImportCsv,
   onUpdateResponses
@@ -289,14 +291,27 @@ export const ResponsesDashboard: React.FC<Props> = ({
           </button>
 
           {(connectedSpreadsheetId || webhookUrl) ? (
-            <button
-              onClick={handleSyncAllToGoogleSheets}
-              disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Sincronizando...' : 'Enviar a Google Sheets'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncAllToGoogleSheets}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? 'Sincronizando...' : 'Enviar a Google Sheets'}
+              </button>
+
+              {connectedSpreadsheetId && onRefreshFromGoogleSheets && (
+                <button
+                  onClick={onRefreshFromGoogleSheets}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
+                  title="Cargar las filas más recientes directamente desde Google Sheets"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
+                  Actualizar desde Sheets
+                </button>
+              )}
+            </div>
           ) : (
             <button
               onClick={onOpenDirectSheets}

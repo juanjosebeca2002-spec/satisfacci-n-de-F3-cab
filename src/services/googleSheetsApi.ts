@@ -98,9 +98,13 @@ export async function readSpreadsheetValues(
   accessToken: string
 ): Promise<string[][]> {
   const cleanId = extractSpreadsheetId(spreadsheetId);
-  const range = `${encodeURIComponent(sheetTitle)}!A1:Z500`;
+  const targetTitle = sheetTitle || DEFAULT_SHEET_TAB_TITLE;
+  const safeTitle = targetTitle.includes(' ') || targetTitle.includes('-')
+    ? `'${targetTitle.replace(/'/g, "\\'")}'`
+    : targetTitle;
+  const range = `${safeTitle}!A1:Z500`;
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${range}`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(range)}`,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`
@@ -124,56 +128,89 @@ export function mapSurveyResponseToRow(
   response: SurveyResponse,
   headers: string[] = USER_SHEET_HEADERS
 ): (string | number)[] {
-  // If the sheet has the exact 18 headers from the user's sheet:
-  const isUserSheetFormat = headers.some((h) =>
-    h.toLowerCase().includes('condiciones de seguridad') ||
-    h.toLowerCase().includes('cumple con tus necesidades')
-  );
+  const satisfactionLabels = ['', 'Muy insatisfecho', 'Insatisfecho', 'Regular', 'Satisfecho', 'Excelente'];
+  const starToText = (val: any) => {
+    const num = Number(val);
+    return satisfactionLabels[num] || String(val || '');
+  };
 
-  if (isUserSheetFormat) {
-    const satisfactionLabels = ['', 'Muy insatisfecho', 'Insatisfecho', 'Regular', 'Satisfecho', 'Excelente'];
-    const starToText = (val: any) => {
-      const num = Number(val);
-      return satisfactionLabels[num] || String(val || '');
-    };
+  const idText = response.identificacion && response.identificacion !== 'Anónimo'
+    ? `${response.identificacion} (${response.relacionCentro})`
+    : response.relacionCentro || 'Aprendiz';
 
-    return [
-      response.timestamp, // 1. Marca temporal
-      response.identificacion || response.relacionCentro, // 2. ¿Cuál es tu relación con el Centro Agropecuario de Buga?
-      response.frecuenciaUso, // 3. ¿Con qué frecuencia utilizas el ambiente F3?
-      response.propositoUso, // 4. ¿Para qué utilizas principalmente el ambiente F3?
-      starToText(response.limpiezaMobiliario), // 5. Limpieza
-      starToText(response.equiposPerifericos), // 6. Estado de instalaciones / equipos
-      starToText(response.limpiezaMobiliario), // 7. Comodidad
-      starToText(response.iluminacionVentilacion), // 8. Iluminación y ventilación
-      starToText(response.equiposPerifericos), // 9. Mobiliario y recursos
-      'Excelente', // 10. Orden y organización
-      'Excelente', // 11. Condiciones de seguridad
-      'Sí, disponible', // 12. Disponibilidad
-      starToText(response.satisfaccionGeneral), // 13. En general, ¿qué tan satisfecho estás?
-      response.softwareRequerido, // 14. Cumple con tus necesidades
-      '', // 15. Dificultad
-      response.recomendaciones ? 'Equipos y software' : '', // 16. Aspectos a mejorar
-      'Espacio de formación y computadores', // 17. Aspectos positivos
-      response.recomendaciones || '' // 18. Recomendación adicional
-    ];
+  return [
+    response.timestamp, // 1. Marca temporal
+    idText, // 2. ¿Cuál es tu relación con el Centro Agropecuario de Buga?
+    response.frecuenciaUso || 'Diario', // 3. ¿Con qué frecuencia utilizas el ambiente F3?
+    response.propositoUso || 'Formación y clases', // 4. ¿Para qué utilizas principalmente el ambiente F3?
+    starToText(response.limpiezaMobiliario), // 5. Limpieza
+    starToText(response.equiposPerifericos), // 6. Estado de instalaciones / equipos
+    starToText(response.limpiezaMobiliario), // 7. Comodidad
+    starToText(response.iluminacionVentilacion), // 8. Iluminación y ventilación
+    starToText(response.equiposPerifericos), // 9. Mobiliario y recursos
+    'Excelente', // 10. Orden y organización
+    'Excelente', // 11. Condiciones de seguridad
+    'Sí, disponible', // 12. Disponibilidad
+    starToText(response.satisfaccionGeneral), // 13. En general, ¿qué tan satisfecho estás?
+    response.softwareRequerido || 'Sí, totalmente', // 14. Cumple con tus necesidades
+    response.recomendaciones ? 'Observaciones registradas' : 'Ninguna', // 15. Dificultad
+    response.recomendaciones ? 'Hardware y software' : '', // 16. Aspectos a mejorar
+    'Espacio de formación y recursos', // 17. Aspectos positivos
+    response.recomendaciones || '' // 18. Recomendación adicional
+  ];
+}
+
+/**
+ * Parsea las filas leídas desde la hoja de Google Sheets a objetos SurveyResponse para actualizar el estado
+ */
+export function parseSheetRowsToSurveyResponses(rows: string[][]): SurveyResponse[] {
+  if (!rows || rows.length <= 1) return [];
+
+  const textToScore = (val: string): number => {
+    if (!val) return 4;
+    const lower = val.toLowerCase();
+    if (lower.includes('excelente') || lower.includes('muy satisfecho') || lower.includes('muy confortable')) return 5;
+    if (lower.includes('bueno') || lower.includes('satisfecho') || lower.includes('confortable')) return 4;
+    if (lower.includes('regular') || lower.includes('aceptable') || lower.includes('neutral')) return 3;
+    if (lower.includes('deficiente') || lower.includes('insatisfecho') || lower.includes('falla')) return 2;
+    if (lower.includes('muy deficiente') || lower.includes('muy insatisfecho')) return 1;
+    const n = Number(val);
+    return isNaN(n) ? 4 : Math.min(5, Math.max(1, n));
+  };
+
+  const results: SurveyResponse[] = [];
+
+  // Omitir fila 0 (encabezados)
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0 || !row[0]) continue;
+
+    const rawId = row[1] || 'Anónimo';
+    let rol = 'Aprendiz';
+    if (rawId.includes('Instructor')) rol = 'Instructor';
+    else if (rawId.includes('Funcionario')) rol = 'Funcionario';
+    else if (rawId.includes('Egresado')) rol = 'Egresado';
+    else if (rawId.includes('Visitante')) rol = 'Visitante';
+
+    results.push({
+      id: `sheet-row-${i}-${Date.now()}`,
+      timestamp: row[0],
+      identificacion: rawId,
+      relacionCentro: rol,
+      frecuenciaUso: row[2] || 'Diario',
+      propositoUso: row[3] || 'Formación y clases',
+      limpiezaMobiliario: textToScore(row[4]),
+      equiposPerifericos: textToScore(row[5]),
+      iluminacionVentilacion: textToScore(row[7]),
+      conectividadInternet: textToScore(row[8] || row[5]),
+      satisfaccionGeneral: textToScore(row[12]),
+      softwareRequerido: row[13] || 'Sí, totalmente',
+      recomendaciones: row[17] || row[16] || '',
+      syncedToGoogleSheets: true
+    });
   }
 
-  // Standard 10 questions format
-  return [
-    response.timestamp,
-    response.identificacion || 'Anónimo',
-    response.relacionCentro,
-    response.frecuenciaUso,
-    response.propositoUso,
-    response.equiposPerifericos,
-    response.conectividadInternet,
-    response.softwareRequerido,
-    response.iluminacionVentilacion,
-    response.limpiezaMobiliario,
-    response.satisfaccionGeneral,
-    response.recomendaciones || ''
-  ];
+  return results.reverse(); // Los más recientes primero
 }
 
 /**

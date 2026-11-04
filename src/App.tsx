@@ -7,7 +7,6 @@ import { GoogleSheetsSetupModal } from './components/GoogleSheetsSetupModal';
 import { HtmlDownloadModal } from './components/HtmlDownloadModal';
 import { SurveyResponse } from './types/survey';
 import { INITIAL_RESPONSES } from './data/surveyQuestions';
-import { initAuth } from './services/googleAuth';
 import {
   BarChart3,
   CheckCircle2,
@@ -20,12 +19,14 @@ import {
   Settings,
   Sparkles
 } from 'lucide-react';
-
 import {
   DEFAULT_SPREADSHEET_ID,
   DEFAULT_SHEET_TAB_TITLE,
-  DEFAULT_SPREADSHEET_NAME
+  DEFAULT_SPREADSHEET_NAME,
+  readSpreadsheetValues,
+  parseSheetRowsToSurveyResponses
 } from './services/googleSheetsApi';
+import { initAuth, getAccessToken } from './services/googleAuth';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'form' | 'dashboard'>('form');
@@ -124,6 +125,33 @@ export default function App() {
       localStorage.setItem('f3_survey_responses', JSON.stringify(updated));
       return updated;
     });
+  };
+
+  const handleRefreshFromGoogleSheets = async () => {
+    if (!connectedSpreadsheetId) return;
+    const token = await getAccessToken();
+    if (!token) {
+      setIsDirectSheetsModalOpen(true);
+      return;
+    }
+
+    try {
+      const targetTab = connectedSheetTitle || DEFAULT_SHEET_TAB_TITLE;
+      const rows = await readSpreadsheetValues(connectedSpreadsheetId, targetTab, token);
+      const parsed = parseSheetRowsToSurveyResponses(rows);
+      if (parsed.length > 0) {
+        setResponses(parsed);
+        localStorage.setItem('f3_survey_responses', JSON.stringify(parsed));
+        setBannerAlert(`¡Datos actualizados desde Google Sheets! Se sincronizaron ${parsed.length} respuestas de la pestaña "${targetTab}".`);
+      } else {
+        setBannerAlert(`La pestaña "${targetTab}" está conectada. Se actualizará con las respuestas entrantes.`);
+      }
+      setTimeout(() => setBannerAlert(null), 5000);
+    } catch (err: any) {
+      console.error('Error al sincronizar con Google Sheets:', err);
+      setBannerAlert(`Error al consultar Google Sheets: ${err.message || 'Verifica permisos de acceso'}`);
+      setTimeout(() => setBannerAlert(null), 5000);
+    }
   };
 
   const handleClearResponses = () => {
@@ -312,6 +340,7 @@ export default function App() {
             connectedSpreadsheetId={connectedSpreadsheetId}
             connectedSheetTitle={connectedSheetTitle}
             onOpenDirectSheets={() => setIsDirectSheetsModalOpen(true)}
+            onRefreshFromGoogleSheets={handleRefreshFromGoogleSheets}
             onClearResponses={handleClearResponses}
             onImportCsv={handleImportCsv}
             onUpdateResponses={setResponses}
