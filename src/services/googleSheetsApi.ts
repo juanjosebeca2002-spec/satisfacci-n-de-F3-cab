@@ -1,7 +1,14 @@
 import { SurveyResponse } from '../types/survey';
 
 /**
- * Encabezados exactos del archivo y de la hoja de cálculo del usuario
+ * Hoja de cálculo vinculada por defecto (persistente entre dispositivos)
+ */
+export const DEFAULT_SPREADSHEET_ID = '10FFRTrDfzbdWUD6XFWjFOyqom54dYWmfJBl1QjLxttU';
+export const DEFAULT_SHEET_TAB_TITLE = 'Respuestas de formulario 2';
+export const DEFAULT_SPREADSHEET_NAME = 'Encuesta de Satisfacción Sala F3';
+
+/**
+ * Encabezados exactos de la hoja de cálculo del usuario
  */
 export const USER_SHEET_HEADERS = [
   'Marca temporal',
@@ -179,9 +186,14 @@ export async function appendRowToGoogleSheet(
   accessToken: string
 ): Promise<{ success: boolean; updatedRange?: string }> {
   const cleanId = extractSpreadsheetId(spreadsheetId);
-  const range = `${encodeURIComponent(sheetTitle)}!A1`;
+  const targetTitle = sheetTitle || DEFAULT_SHEET_TAB_TITLE;
+  // Encerrar entre comillas simples si el nombre de la pestaña tiene espacios (ej. 'Respuestas de formulario 2')
+  const safeTitle = targetTitle.includes(' ') || targetTitle.includes('-')
+    ? `'${targetTitle.replace(/'/g, "\\'")}'`
+    : targetTitle;
+  const range = `${safeTitle}!A1`;
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
 
   const res = await fetch(url, {
     method: 'POST',

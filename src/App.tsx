@@ -21,12 +21,26 @@ import {
   Sparkles
 } from 'lucide-react';
 
+import {
+  DEFAULT_SPREADSHEET_ID,
+  DEFAULT_SHEET_TAB_TITLE,
+  DEFAULT_SPREADSHEET_NAME
+} from './services/googleSheetsApi';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'form' | 'dashboard'>('form');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [connectedSpreadsheetId, setConnectedSpreadsheetId] = useState<string>('');
-  const [connectedSheetTitle, setConnectedSheetTitle] = useState<string>('');
-  const [spreadsheetName, setSpreadsheetName] = useState<string>('');
+  
+  // Por defecto conectado a la hoja indicada por el usuario para todos los equipos
+  const [connectedSpreadsheetId, setConnectedSpreadsheetId] = useState<string>(
+    localStorage.getItem('f3_spreadsheet_id') || DEFAULT_SPREADSHEET_ID
+  );
+  const [connectedSheetTitle, setConnectedSheetTitle] = useState<string>(
+    localStorage.getItem('f3_sheet_tab_title') || DEFAULT_SHEET_TAB_TITLE
+  );
+  const [spreadsheetName, setSpreadsheetName] = useState<string>(
+    localStorage.getItem('f3_spreadsheet_name') || DEFAULT_SPREADSHEET_NAME
+  );
 
   const [webhookUrl, setWebhookUrl] = useState<string>('');
   const [responses, setResponses] = useState<SurveyResponse[]>([]);
@@ -43,15 +57,13 @@ export default function App() {
       () => setCurrentUser(null)
     );
 
-    // Load direct Google Sheets connection
-    const savedSheetId = localStorage.getItem('f3_spreadsheet_id') || '';
-    const savedSheetTab = localStorage.getItem('f3_sheet_tab_title') || '';
-    const savedSheetName = localStorage.getItem('f3_spreadsheet_name') || '';
-    if (savedSheetId) {
-      setConnectedSpreadsheetId(savedSheetId);
-      setConnectedSheetTitle(savedSheetTab);
-      setSpreadsheetName(savedSheetName);
-    }
+    // Asegurar valores por defecto en cualquier equipo
+    const savedSheetId = localStorage.getItem('f3_spreadsheet_id') || DEFAULT_SPREADSHEET_ID;
+    const savedSheetTab = localStorage.getItem('f3_sheet_tab_title') || DEFAULT_SHEET_TAB_TITLE;
+    const savedSheetName = localStorage.getItem('f3_spreadsheet_name') || DEFAULT_SPREADSHEET_NAME;
+    setConnectedSpreadsheetId(savedSheetId);
+    setConnectedSheetTitle(savedSheetTab);
+    setSpreadsheetName(savedSheetName);
 
     // Load webhook URL (if any)
     const savedUrl = localStorage.getItem('f3_sheets_webhook_url');

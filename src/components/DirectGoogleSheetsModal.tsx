@@ -11,6 +11,9 @@ import {
   getSpreadsheetDetails,
   createNewSpreadsheetInDrive,
   USER_SHEET_HEADERS,
+  DEFAULT_SPREADSHEET_ID,
+  DEFAULT_SHEET_TAB_TITLE,
+  DEFAULT_SPREADSHEET_NAME,
   SpreadsheetInfo
 } from '../services/googleSheetsApi';
 import {
@@ -46,21 +49,17 @@ export const DirectGoogleSheetsModal: React.FC<Props> = ({
   connectedSheetTitle,
   onSaveSpreadsheet
 }) => {
-  const [sheetUrlInput, setSheetUrlInput] = useState(connectedSpreadsheetId || '');
+  const [sheetUrlInput, setSheetUrlInput] = useState(connectedSpreadsheetId || DEFAULT_SPREADSHEET_ID);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sheetInfo, setSheetInfo] = useState<SpreadsheetInfo | null>(null);
-  const [selectedSheetTab, setSelectedSheetTab] = useState(connectedSheetTitle || '');
+  const [selectedSheetTab, setSelectedSheetTab] = useState(connectedSheetTitle || DEFAULT_SHEET_TAB_TITLE);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    if (connectedSpreadsheetId) {
-      setSheetUrlInput(connectedSpreadsheetId);
-    }
-    if (connectedSheetTitle) {
-      setSelectedSheetTab(connectedSheetTitle);
-    }
+    setSheetUrlInput(connectedSpreadsheetId || DEFAULT_SPREADSHEET_ID);
+    setSelectedSheetTab(connectedSheetTitle || DEFAULT_SHEET_TAB_TITLE);
   }, [connectedSpreadsheetId, connectedSheetTitle]);
 
   if (!isOpen) return null;
