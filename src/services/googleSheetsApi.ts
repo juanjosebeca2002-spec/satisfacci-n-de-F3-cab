@@ -1,0 +1,267 @@
+import { SurveyResponse } from '../types/survey';
+
+/**
+ * Encabezados exactos del archivo y de la hoja de cálculo del usuario
+ */
+export const USER_SHEET_HEADERS = [
+  'Marca temporal',
+  '¿Cuál es tu relación con el Centro Agropecuario de Buga?',
+  '¿Con qué frecuencia utilizas el ambiente F3?',
+  '¿Para qué utilizas principalmente el ambiente F3?',
+  '¿Qué tan satisfecho estás con la limpieza del ambiente F3?',
+  '¿Qué tan satisfecho estás con el estado de las instalaciones?',
+  '¿Qué tan satisfecho estás con la comodidad del ambiente?',
+  '¿Qué tan satisfecho estás con la iluminación y ventilación?',
+  '¿Qué tan satisfecho estás con el mobiliario y los recursos disponibles?',
+  '¿Qué tan satisfecho estás con el orden y la organización del espacio?',
+  '¿Qué tan satisfecho estás con las condiciones de seguridad?',
+  '¿Qué tan satisfecho estás con la disponibilidad del ambiente cuando lo necesitas?',
+  'En general, ¿qué tan satisfecho estás con el ambiente F3?',
+  '¿El ambiente F3 cumple con tus necesidades?',
+  '¿Has encontrado alguna dificultad al utilizar el ambiente F3?',
+  '¿Qué aspectos del ambiente F3 consideras que deberían mejorar?',
+  '¿Qué aspectos positivos destacarías del ambiente F3?',
+  '¿Qué recomendación adicional tienes para mejorar el ambiente F3?'
+];
+
+/**
+ * Extrae el ID de la hoja de cálculo a partir de la URL de Google Sheets o del ID directo
+ */
+export function extractSpreadsheetId(input: string): string {
+  if (!input) return '';
+  const trimmed = input.trim();
+  // Matching https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/...
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  // If it's already an ID
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+export interface SpreadsheetInfo {
+  id: string;
+  title: string;
+  sheets: { title: string; sheetId: number }[];
+}
+
+/**
+ * Obtiene información y pestañas de la hoja de cálculo mediante la Google Sheets API
+ */
+export async function getSpreadsheetDetails(
+  spreadsheetId: string,
+  accessToken: string
+): Promise<SpreadsheetInfo> {
+  const cleanId = extractSpreadsheetId(spreadsheetId);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cleanId}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData.error?.message ||
+        `No se pudo acceder a la hoja de cálculo (${res.status}). Verifica el enlace o permisos.`
+    );
+  }
+
+  const data = await res.json();
+  return {
+    id: data.spreadsheetId,
+    title: data.properties?.title || 'Hoja de Cálculo',
+    sheets: (data.sheets || []).map((s: any) => ({
+      title: s.properties?.title || 'Hoja 1',
+      sheetId: s.properties?.sheetId || 0
+    }))
+  };
+}
+
+/**
+ * Lee las filas existentes de la hoja de cálculo
+ */
+export async function readSpreadsheetValues(
+  spreadsheetId: string,
+  sheetTitle: string,
+  accessToken: string
+): Promise<string[][]> {
+  const cleanId = extractSpreadsheetId(spreadsheetId);
+  const range = `${encodeURIComponent(sheetTitle)}!A1:Z500`;
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${range}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'Error al leer valores de la hoja');
+  }
+
+  const data = await res.json();
+  return data.values || [];
+}
+
+/**
+ * Convierte un objeto de respuesta en una fila que coincide con las columnas de la hoja
+ */
+export function mapSurveyResponseToRow(
+  response: SurveyResponse,
+  headers: string[] = USER_SHEET_HEADERS
+): (string | number)[] {
+  // If the sheet has the exact 18 headers from the user's sheet:
+  const isUserSheetFormat = headers.some((h) =>
+    h.toLowerCase().includes('condiciones de seguridad') ||
+    h.toLowerCase().includes('cumple con tus necesidades')
+  );
+
+  if (isUserSheetFormat) {
+    const satisfactionLabels = ['', 'Muy insatisfecho', 'Insatisfecho', 'Regular', 'Satisfecho', 'Excelente'];
+    const starToText = (val: any) => {
+      const num = Number(val);
+      return satisfactionLabels[num] || String(val || '');
+    };
+
+    return [
+      response.timestamp, // 1. Marca temporal
+      response.identificacion || response.relacionCentro, // 2. ¿Cuál es tu relación con el Centro Agropecuario de Buga?
+      response.frecuenciaUso, // 3. ¿Con qué frecuencia utilizas el ambiente F3?
+      response.propositoUso, // 4. ¿Para qué utilizas principalmente el ambiente F3?
+      starToText(response.limpiezaMobiliario), // 5. Limpieza
+      starToText(response.equiposPerifericos), // 6. Estado de instalaciones / equipos
+      starToText(response.limpiezaMobiliario), // 7. Comodidad
+      starToText(response.iluminacionVentilacion), // 8. Iluminación y ventilación
+      starToText(response.equiposPerifericos), // 9. Mobiliario y recursos
+      'Excelente', // 10. Orden y organización
+      'Excelente', // 11. Condiciones de seguridad
+      'Sí, disponible', // 12. Disponibilidad
+      starToText(response.satisfaccionGeneral), // 13. En general, ¿qué tan satisfecho estás?
+      response.softwareRequerido, // 14. Cumple con tus necesidades
+      '', // 15. Dificultad
+      response.recomendaciones ? 'Equipos y software' : '', // 16. Aspectos a mejorar
+      'Espacio de formación y computadores', // 17. Aspectos positivos
+      response.recomendaciones || '' // 18. Recomendación adicional
+    ];
+  }
+
+  // Standard 10 questions format
+  return [
+    response.timestamp,
+    response.identificacion || 'Anónimo',
+    response.relacionCentro,
+    response.frecuenciaUso,
+    response.propositoUso,
+    response.equiposPerifericos,
+    response.conectividadInternet,
+    response.softwareRequerido,
+    response.iluminacionVentilacion,
+    response.limpiezaMobiliario,
+    response.satisfaccionGeneral,
+    response.recomendaciones || ''
+  ];
+}
+
+/**
+ * Agrega una nueva respuesta como fila en la hoja de cálculo de Google
+ */
+export async function appendRowToGoogleSheet(
+  spreadsheetId: string,
+  sheetTitle: string,
+  rowValues: (string | number)[],
+  accessToken: string
+): Promise<{ success: boolean; updatedRange?: string }> {
+  const cleanId = extractSpreadsheetId(spreadsheetId);
+  const range = `${encodeURIComponent(sheetTitle)}!A1`;
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      values: [rowValues]
+    })
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData.error?.message || `Error al agregar fila en Google Sheets (${res.status})`
+    );
+  }
+
+  const result = await res.json();
+  return {
+    success: true,
+    updatedRange: result.updates?.updatedRange
+  };
+}
+
+/**
+ * Crea una nueva hoja de cálculo en la cuenta de Google del usuario con los encabezados
+ */
+export async function createNewSpreadsheetInDrive(
+  title: string,
+  headers: string[],
+  accessToken: string
+): Promise<{ spreadsheetId: string; spreadsheetUrl: string; sheetTitle: string }> {
+  const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      properties: {
+        title: title || 'Encuesta de Satisfacción Sala F3 - Centro Agropecuario de Buga'
+      },
+      sheets: [
+        {
+          properties: {
+            title: 'Respuestas de la Encuesta'
+          },
+          data: [
+            {
+              startRow: 0,
+              startColumn: 0,
+              rowData: [
+                {
+                  values: headers.map((header) => ({
+                    userEnteredValue: { stringValue: header },
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.22, green: 0.66, blue: 0.0 }, // Verde SENA
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }
+                    }
+                  }))
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'Error al crear la hoja de cálculo en Google');
+  }
+
+  const data = await res.json();
+  return {
+    spreadsheetId: data.spreadsheetId,
+    spreadsheetUrl: data.spreadsheetUrl,
+    sheetTitle: data.sheets?.[0]?.properties?.title || 'Respuestas de la Encuesta'
+  };
+}
